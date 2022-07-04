@@ -1,0 +1,149 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: elasticsearch
+  name: elasticsearch
+  namespace: efk-stack
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: elasticsearch
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+    spec:
+      containers:
+        - image: docker.elastic.co/elasticsearch/elasticsearch:8.2.2
+          imagePullPolicy: IfNotPresent
+          name: setup
+          command: ["/bin/sh", "-c"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsUser: 0
+          args:
+            - echo "script starts";
+              chown -R root:root config/certs;
+              if [ ! -f config/certs/ca.zip ]; then
+                echo "Creating CA";
+                bin/elasticsearch-certutil ca --silent --pem -out config/certs/ca.zip;
+                unzip config/certs/ca.zip -d config/certs;
+              fi;
+              if [ ! -f config/certs/certs.zip ]; then
+                echo "Creating certs";
+                echo -ne \
+                "instances:\n"\
+                "  - name: elasticsearch\n"\
+                "    dns:\n"\
+                "      - elasticsearch\n"\
+                "      - localhost\n"\
+                "    ip:\n"\
+                "      - 127.0.0.1\n"\
+                > config/certs/instances.yml;
+              fi;
+              echo "Setting file permissions"
+              chown -R root:root config/certs;
+              find . -type d -exec chmod 750 \{\} \;;
+              find . -type f -exec chmod 640 \{\} \;;
+              echo "Waiting for Elasticsearch availability";
+              until curl -s --cacert config/certs/ca/ca.crt https://elasticsearch:9200 | grep -q "missing authentication credentials"; do sleep 30; done;
+              echo "Setting kibana_system password";
+              echo "All done!";
+          ports:
+            - name: es-port
+              containerPort: 9200
+          volumeMounts:
+            - name: certs
+              mountPath: /usr/share/elasticsearch/config/certs
+      volumes:
+        - name: certs
+          hostPath:
+            path: /usr/share/elasticsearch/config/certs
+          # emptyDir: {}
+          # env:
+          #   - name: PORT
+          #     value: "4001"
+          #   - name: HOST
+          #     value: "0.0.0.0"
+          #   - name: AUTH_SERVICE_URL
+          #     value: "http://10.99.73.68:30502"
+          #   - name: NOTIFICATION_SERVICE_URL
+          #     value: "http://localhost:3003"
+          #   - name: SUBSCRIPTION_SERVICE_URL
+          #     value: "http://localhost:3007"
+          #   - name: PRODUCTID
+          #     value: "1982ba5b-fa8f-4ead-8c70-74b1d18929ae"
+          #   - name: DEFAULT_PASSWORD
+          #     value: "BillHive@123"
+          #   - name: LOGGER_HOST
+          #     value: "0.0.0.0"
+          #   - name: LOGGER_PORT
+          #     value: "24224"
+---
+# apiVersion: apps/v1
+# kind: Deployment
+# metadata:
+#   labels:
+#     app: elasticsearch
+#   name: elasticsearch
+#   namespace: efk-stack
+# spec:
+#   replicas: 1
+#   selector:
+#     matchLabels:
+#       app: elasticsearch
+#   template:
+#     metadata:
+#       labels:
+#         app: elasticsearch
+#     spec:
+#       containers:
+#         - image: docker.elastic.co/elasticsearch/elasticsearch:8.2.2
+#           imagePullPolicy: IfNotPresent
+#           name: elasticsearch
+#           ports:
+#             - name: es-port
+#               containerPort: 9200
+#           volumeMounts:
+#             - name: certs
+#               mountPath: /usr/share/elasticsearch/config/certs
+#             - name: esdata01
+#               mountPath: /usr/share/elasticsearch/data
+#           env:
+#             - name: PORT
+#               value: "4001"
+#             - name: HOST
+#               value: "0.0.0.0"
+#             - name: AUTH_SERVICE_URL
+#               value: "http://10.99.73.68:30502"
+#             - name: NOTIFICATION_SERVICE_URL
+#               value: "http://localhost:3003"
+#             - name: SUBSCRIPTION_SERVICE_URL
+#               value: "http://localhost:3007"
+#             - name: PRODUCTID
+#               value: "1982ba5b-fa8f-4ead-8c70-74b1d18929ae"
+#             - name: DEFAULT_PASSWORD
+#               value: "BillHive@123"
+#             - name: LOGGER_HOST
+#               value: "0.0.0.0"
+#             - name: LOGGER_PORT
+#               value: "24224"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: elasticsearch
+  name: elasticsearch
+  namespace: efk-stack
+spec:
+  ports:
+  - nodePort: 30601
+    port: 9200
+    protocol: TCP
+    targetPort: es-port
+  selector:
+    app: elasticsearch
+  type: NodePort
