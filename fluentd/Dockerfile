@@ -1,3 +1,4 @@
+#!/bin/bash
 # fluentd/Dockerfile
 
 FROM fluent/fluentd:edge-debian-armhf
